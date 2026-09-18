@@ -1,48 +1,81 @@
 #!/usr/bin/env python3
 """
-监控一首歌是否在 Apple Music 上架，上架后通过 Telegram 通知。
-配置方式：把下面 CONFIG 里的内容改掉，或者用同名的环境变量覆盖（推荐用于 GitHub Actions）。
+监控一首歌是否在 Apple Music 指定国区上架，上架后通过 Telegram 通知。
+用的是 Apple Music 网页版背后的接口（比老旧的 iTunes Search API 靠谱，
+尤其是大陆区，旧接口的 country=cn 基本是坏的）。
 """
 
 import os
+import re
 import json
 import requests
 
-# ========== 在这里填你的信息（或用环境变量覆盖） ==========
 CONFIG = {
-    "SONG_NAME": "歌名",
-    "ARTIST_NAME": "歌手名",
-    "COUNTRY": "us",
+    "SONG_NAME": "野人",
+    "ARTIST_NAME": "孟維來",
+    "COUNTRY": "cn",
     "TG_BOT_TOKEN": "你的BotToken",
     "TG_CHAT_ID": "你的ChatID",
 }
-# ==========================================================
 
 STATE_FILE = "state.json"
+UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
 
 
 def get_config(key):
     return os.environ.get(key, CONFIG[key])
 
 
-def search_itunes(song, artist, country):
-    term = f"{artist} {song}"
-    url = "https://itunes.apple.com/search"
-    params = {
-        "term": term,
-        "entity": "song",
-        "country": country,
-        "limit": 10,
-    }
-    resp = requests.get(url, params=params, timeout=15)
+def get_apple_music_token():
+    resp = requests.get(
+        "https://music.apple.com/us/search",
+        headers={"User-Agent": UA},
+        timeout=20,
+    )
     resp.raise_for_status()
-    return resp.json().get("results", [])
+    html = resp.text
+
+    m = re.search(r'"token":"([^"]+)"', html)
+    if m:
+        return m.group(1)
+
+    m = re.search(
+        r'name="desktop-music-app/config/environment"\s+content="([^"]+)"', html
+    )
+    if m:
+        import urllib.parse
+
+        decoded = urllib.parse.unquote(m.group(1))
+        data = json.loads(decoded)
+        return data["MEDIA_API"]["token"]
+
+    print("调试信息：没能从页面里找到 token，页面片段如下：")
+    print(html[:500])
+    raise RuntimeError("拿不到 Apple Music token")
 
 
-def is_match(result, song, artist):
-    track = result.get("trackName", "").lower()
-    art = result.get("artistName", "").lower()
-    return song.lower() in track and artist.lower() in art
+def search_apple_music(token, song, artist, country):
+    url = f"https://amp-api.music.apple.com/v1/catalog/{country}/search"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Origin": "https://music.apple.com",
+        "User-Agent": UA,
+    }
+    params = {"term": f"{artist} {song}", "types": "songs", "limit": 10}
+    resp = requests.get(url, headers=headers, params=params, timeout=20)
+    print("调试信息：接口状态码：", resp.status_code)
+    if resp.status_code != 200:
+        print("调试信息：返回内容：", resp.text[:500])
+        resp.raise_for_status()
+    data = resp.json()
+    return data.get("results", {}).get("songs", {}).get("data", [])
+
+
+def is_match(item, song, artist):
+    attrs = item.get("attributes", {})
+    name = attrs.get("name", "")
+    art = attrs.get("artistName", "")
+    return song in name and artist in art
 
 
 def load_state():
@@ -75,22 +108,13 @@ def main():
         print("已经通知过了，跳过本次检查。")
         return
 
-    results = search_itunes(song, artist, country)
-    match = next((r for r in results if is_match(r, song, artist)), None)
+    token = get_apple_music_token()
+    print("调试信息：拿到 token，长度：", len(token))
 
-    if match:
-        link = match.get("trackViewUrl", "")
-        text = (
-            f"🎉 上架啦！\n"
-            f"《{match.get('trackName')}》- {match.get('artistName')}\n"
-            f"{link}"
-        )
-        send_telegram(tg_token, tg_chat_id, text)
-        print("已发送 Telegram 通知：", text)
-        save_state({"found": True})
-    else:
-        print(f"暂未上架：{artist} - {song}（{country} 区）")
+    results = search_apple_music(token, song, artist, country)
+    print(f"调试信息：搜到 {len(results)} 条结果")
+    for r in results[:5]:
+        a = r.get("attributes", {})
+        print("  -", a.get("name"), "/", a.get("artistName"))
 
-
-if __name__ == "__main__":
-    main()
+    match =
