@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install requests beautifulsoup4
+      - run: pip install requests beautifulsoup4 opencc-python-reimplemented
 
       - name: Restore state
         uses: actions/cache@v4
