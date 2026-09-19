@@ -13,11 +13,20 @@ from urllib.parse import quote_plus
 from bs4 import BeautifulSoup
 import opencc
 
+import re
+
 _converter = opencc.OpenCC("t2s")  # 统一转成简体再比较，不管输入是繁体还是简体
 
 
 def normalize(text):
-    return _converter.convert(text)
+    text = _converter.convert(text)
+    text = text.lower()  # 英文不区分大小写
+    text = re.sub(r"\s+", "", text)  # 去掉所有空格，避免排版差异导致比对失败
+    # 全角符号统一转成半角，避免"（）"和"()"这种视觉一样但编码不同的符号导致误判
+    fullwidth = "（）－·＆／！？：；，。"
+    halfwidth = "()-·&/!?:;,."
+    text = text.translate(str.maketrans(fullwidth, halfwidth))
+    return text
 
 SONGS_FILE = "songs.json"
 STATE_FILE = "state.json"
@@ -146,7 +155,6 @@ def is_match(item, song, artist):
     # 歌手比对放宽：把你输入的歌手名按常见分隔符拆开，
     # 只要有一个能在苹果返回的歌手栏位里找到，就算匹配上
     # （应付"合唱"这种苹果实际显示成 A & B / A、B / A x B 的情况）
-    import re
     parts = [p.strip() for p in re.split(r"[,，、&/xX×]| feat\.?| ft\.?", artist) if p.strip()]
     if not parts:
         parts = [artist]
