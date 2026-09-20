@@ -139,7 +139,23 @@ def search_apple_music(song, artist, country):
     return results
 
 
+EXCLUDE_KEYWORDS = [
+    "live", "伴奏", "remix", "instrumental", "karaoke", "demo",
+    "精简版", "现场", "音乐会版", "live version", "unplugged",
+    "concert", "演唱会", "伴唱", "纯音乐",
+]
+
+
+def is_excluded(title):
+    """过滤掉Live/伴奏/Remix这类非正式版本，避免历史演出录音被误判成"新歌上架\""""
+    title_n = normalize(title)
+    return any(normalize(kw) in title_n for kw in EXCLUDE_KEYWORDS)
+
+
 def is_match(item, song, artist):
+    if is_excluded(item["title"]):
+        return False
+
     song_n = normalize(song)
     title_n = normalize(item["title"])
 
