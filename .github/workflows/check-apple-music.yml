@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # 允许脚本把新加的歌自动提交回仓库
+  contents: write   # 需要把"已通知"状态写回 songs.json
 
 jobs:
   check:
@@ -21,28 +21,25 @@ jobs:
 
       - run: pip install requests beautifulsoup4 opencc-python-reimplemented
 
-      - name: Restore state
-        uses: actions/cache@v4
-        with:
-          path: state.json
-          key: apple-music-state
-
       - name: Run check
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: python check_apple_music.py
 
-      - name: Save state
-        uses: actions/cache/save@v4
-        with:
-          path: state.json
-          key: apple-music-state
-
-      - name: Commit updated songs.json / config.json (if changed)
+      - name: Commit updated songs.json (if changed)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add songs.json config.json
-          git diff --cached --quiet && echo "没有变更，跳过提交" || git commit -m "自动更新监听清单/通知格式"
-          git push
+          git add songs.json
+          if git diff --cached --quiet; then
+            echo "没有变化，跳过提交"
+            exit 0
+          fi
+          git commit -m "标记已上架歌曲"
+          # 推送前先拉一次最新的，减少跟Worker那边并发修改冲突的概率
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin main && git push && break
+            echo "推送冲突，重试第 $i 次..."
+            sleep 3
+          done
