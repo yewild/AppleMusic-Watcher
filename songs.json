@@ -62,7 +62,9 @@
   {
     "song": "勿忘心安",
     "artist": "张杰",
-    "country": "cn"
+    "country": "cn",
+    "notified": true,
+    "matched_title": "勿忘心安"
   },
   {
     "song": "夏天的风",
@@ -72,7 +74,9 @@
   {
     "song": "只要有你",
     "artist": "孙楠",
-    "country": "cn"
+    "country": "cn",
+    "notified": true,
+    "matched_title": "只要有你一起唱"
   },
   {
     "song": "It's",
