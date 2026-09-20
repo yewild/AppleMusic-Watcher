@@ -29,7 +29,6 @@ def normalize(text):
     return text
 
 SONGS_FILE = "songs.json"
-STATE_FILE = "state.json"
 CONFIG_FILE = "config.json"
 UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
 
@@ -53,20 +52,9 @@ def load_config():
     return {"template": DEFAULT_TEMPLATE}
 
 
-def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"songs": {}}
-
-
-def save_state(state):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
-
-
-def song_key(song, artist, country):
-    return f"{country}:{artist}:{song}"
+def save_songs(songs):
+    with open(SONGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(songs, f, ensure_ascii=False, indent=2)
 
 
 def escape_html(text):
@@ -82,11 +70,31 @@ def send_telegram(text, html=False):
     resp.raise_for_status()
 
 
-def notify_found(title, artist, url, template):
+def notify_found(title, artist, url, template, artwork_url=""):
     body = template.replace("{歌名}", title).replace("{歌手}", artist)
     body_e = escape_html(body)
+
+    if artwork_url:
+        try:
+            send_telegram_photo(artwork_url, body_e, url)
+            return
+        except Exception as e:
+            print(f"    发专辑图失败，改发文字通知：{e}")
+
     text = f"{body_e}\n<a href=\"{url}\">&#8203;</a>"
     send_telegram(text, html=True)
+
+
+def send_telegram_photo(photo_url, caption_html, link_url):
+    api_url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendPhoto"
+    caption = f"{caption_html}\n<a href=\"{link_url}\">查看详情</a>"
+    resp = requests.post(api_url, json={
+        "chat_id": TG_CHAT_ID,
+        "photo": photo_url,
+        "caption": caption,
+        "parse_mode": "HTML",
+    }, timeout=15)
+    resp.raise_for_status()
 
 
 def search_apple_music(song, artist, country):
@@ -133,10 +141,25 @@ def search_apple_music(song, artist, country):
             title = item.get("title", "")
             artist_name = item.get("subtitleLinks", [{}])[0].get("title", "")
             link = item.get("contentDescriptor", {}).get("url", "")
-            results.append({"title": title, "artist": artist_name, "url": link})
+            artwork = extract_artwork_url(item)
+            results.append({"title": title, "artist": artist_name, "url": link, "artwork": artwork})
         except Exception:
             continue
     return results
+
+
+def extract_artwork_url(item):
+    """尝试拿专辑封面图，拿不到就算了，不影响正常推送（这块字段名不保证100%稳定）"""
+    try:
+        artwork = item.get("artwork") or {}
+        url = artwork.get("url") or ""
+        if not url:
+            return ""
+        url = url.replace("{w}", "400").replace("{h}", "400")
+        url = url.replace("{c}", "bb").replace("{f}", "jpg")
+        return url
+    except Exception:
+        return ""
 
 
 EXCLUDE_KEYWORDS = [
@@ -182,16 +205,14 @@ def is_match(item, song, artist):
 def main():
     songs = load_songs()
     config = load_config()
-    state = load_state()
-    found_state = state.setdefault("songs", {})
+    songs_changed = False
 
     for entry in songs:
         song = entry["song"]
         artist = entry["artist"]
         country = entry.get("country", "cn")
-        key = song_key(song, artist, country)
 
-        if found_state.get(key, {}).get("found"):
+        if entry.get("notified"):
             print(f"[跳过] 已通知过：{artist} - {song}（{country}）")
             continue
 
@@ -206,13 +227,17 @@ def main():
 
         if match:
             template = config.get("template", DEFAULT_TEMPLATE)
-            notify_found(match["title"], match["artist"], match["url"], template)
+            notify_found(match["title"], match["artist"], match["url"], template, match.get("artwork", ""))
             print(f"  已发送通知：{match['title']} - {match['artist']}")
-            found_state[key] = {"found": True}
+            entry["notified"] = True
+            entry["matched_title"] = match["title"]
+            songs_changed = True
         else:
             print("  暂未上架")
 
-    save_state(state)
+    if songs_changed:
+        save_songs(songs)
+        print("songs.json 有更新，交给workflow提交")
 
 
 if __name__ == "__main__":
