@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Apple Music 上架检查脚本 —— GitHub Actions 版
-只负责：读取 songs.json/config.json，查是否上架，上架了发 Telegram 通知。
+只负责：读取 songs.json，查是否上架，上架了发 Telegram 通知（专辑封面图 + 歌名 + 歌手）。
 不负责：处理 Telegram 聊天指令（那部分现在由 Cloudflare Worker 秒回处理）。
 """
 
@@ -29,13 +29,10 @@ def normalize(text):
     return text
 
 SONGS_FILE = "songs.json"
-CONFIG_FILE = "config.json"
 UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
 
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "你的BotToken")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "你的ChatID")
-
-DEFAULT_TEMPLATE = "🎉 上架啦！\n《{歌名}》- {歌手}"
 
 
 def load_songs():
@@ -43,13 +40,6 @@ def load_songs():
         return []
     with open(SONGS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
-
-
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"template": DEFAULT_TEMPLATE}
 
 
 def save_songs(songs):
@@ -63,35 +53,40 @@ def escape_html(text):
 
 def send_telegram(text, html=False):
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TG_CHAT_ID, "text": text}
+    payload = {
+        "chat_id": TG_CHAT_ID,
+        "text": text,
+        "disable_web_page_preview": True,  # 没有封面图时，也不要触发苹果那个"网页播放器"自动预览卡片
+    }
     if html:
         payload["parse_mode"] = "HTML"
     resp = requests.post(url, json=payload, timeout=15)
     resp.raise_for_status()
 
 
-def notify_found(title, artist, url, template, artwork_url=""):
-    body = template.replace("{歌名}", title).replace("{歌手}", artist)
-    body_e = escape_html(body)
+def notify_found(title, artist, url, artwork_url=""):
+    """干净格式：只有歌名+歌手+可点击链接，不要"上架啦"这种开场白，
+    也不要苹果自动生成的那个大预览卡片"""
+    title_e = escape_html(title)
+    artist_e = escape_html(artist)
+    caption = f'<b>{title_e}</b>\n{artist_e}\n<a href="{url}">查看详情</a>'
 
     if artwork_url:
         try:
-            send_telegram_photo(artwork_url, body_e, url)
+            send_telegram_photo(artwork_url, caption)
             return
         except Exception as e:
             print(f"    发专辑图失败，改发文字通知：{e}")
 
-    text = f"{body_e}\n<a href=\"{url}\">&#8203;</a>"
-    send_telegram(text, html=True)
+    send_telegram(caption, html=True)
 
 
-def send_telegram_photo(photo_url, caption_html, link_url):
+def send_telegram_photo(photo_url, caption_html):
     api_url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendPhoto"
-    caption = f"{caption_html}\n<a href=\"{link_url}\">查看详情</a>"
     resp = requests.post(api_url, json={
         "chat_id": TG_CHAT_ID,
         "photo": photo_url,
-        "caption": caption,
+        "caption": caption_html,
         "parse_mode": "HTML",
     }, timeout=15)
     resp.raise_for_status()
@@ -204,7 +199,6 @@ def is_match(item, song, artist):
 
 def main():
     songs = load_songs()
-    config = load_config()
     songs_changed = False
 
     for entry in songs:
@@ -226,8 +220,7 @@ def main():
         match = next((r for r in results if is_match(r, song, artist)), None)
 
         if match:
-            template = config.get("template", DEFAULT_TEMPLATE)
-            notify_found(match["title"], match["artist"], match["url"], template, match.get("artwork", ""))
+            notify_found(match["title"], match["artist"], match["url"], match.get("artwork", ""))
             print(f"  已发送通知：{match['title']} - {match['artist']}")
             entry["notified"] = True
             entry["matched_title"] = match["title"]
