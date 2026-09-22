@@ -51,12 +51,12 @@ def escape_html(text):
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def send_telegram(text, html=False):
+def send_telegram(text, html=False, disable_preview=True):
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TG_CHAT_ID,
         "text": text,
-        "disable_web_page_preview": True,  # 没有封面图时，也不要触发苹果那个"网页播放器"自动预览卡片
+        "disable_web_page_preview": disable_preview,
     }
     if html:
         payload["parse_mode"] = "HTML"
@@ -78,7 +78,9 @@ def notify_found(title, artist, url, artwork_url=""):
         except Exception as e:
             print(f"    发专辑图失败，改发文字通知：{e}")
 
-    send_telegram(caption, html=True)
+    # 万一实在没抠到封面图（极少数情况），放开预览开关，
+    # 让 Telegram 自己抓一张苹果页面的卡片当兜底，好歹有个视觉效果
+    send_telegram(caption, html=True, disable_preview=False)
 
 
 def send_telegram_photo(photo_url, caption_html):
@@ -150,10 +152,11 @@ def search_apple_music(song, artist, country, debug_song=None):
 
 
 def extract_artwork_url(item):
-    """尝试拿专辑封面图，拿不到就算了，不影响正常推送（这块字段名不保证100%稳定）"""
+    """拿专辑封面图。真实结构是 item.artwork.dictionary.url（比想象中多套了一层）"""
     try:
         artwork = item.get("artwork") or {}
-        url = artwork.get("url") or ""
+        info = artwork.get("dictionary") or {}
+        url = info.get("url") or ""
         if not url:
             return ""
         url = url.replace("{w}", "400").replace("{h}", "400")
