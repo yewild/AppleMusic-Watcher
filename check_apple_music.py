@@ -65,22 +65,12 @@ def send_telegram(text, html=False, disable_preview=True):
 
 
 def notify_found(title, artist, url, artwork_url=""):
-    """干净格式：只有歌名+歌手+可点击链接，不要"上架啦"这种开场白，
-    也不要苹果自动生成的那个大预览卡片"""
+    """恢复成最初那种小巧的卡片样式：干净文字 + Telegram自己生成的小缩略图卡片，
+    不再发大图（大图太占屏幕，体验不如小卡片）"""
     title_e = escape_html(title)
     artist_e = escape_html(artist)
-    caption = f'<b>{title_e}</b>\n{artist_e}\n<a href="{url}">查看详情</a>'
-
-    if artwork_url:
-        try:
-            send_telegram_photo(artwork_url, caption)
-            return
-        except Exception as e:
-            print(f"    发专辑图失败，改发文字通知：{e}")
-
-    # 万一实在没抠到封面图（极少数情况），放开预览开关，
-    # 让 Telegram 自己抓一张苹果页面的卡片当兜底，好歹有个视觉效果
-    send_telegram(caption, html=True, disable_preview=False)
+    text = f'<b>{title_e}</b>\n{artist_e}\n<a href="{url}">查看详情</a>'
+    send_telegram(text, html=True, disable_preview=False)
 
 
 def send_telegram_photo(photo_url, caption_html):
@@ -229,7 +219,7 @@ def main():
         match = next((r for r in results if is_match(r, song, artist)), None)
 
         if match:
-            notify_found(match["title"], match["artist"], match["url"], match.get("artwork", ""))
+            notify_found(match["title"], match["artist"], match["url"])
             print(f"  已发送通知：{match['title']} - {match['artist']}")
             entry["notified"] = True
             entry["matched_title"] = match["title"]
