@@ -92,7 +92,7 @@ def send_telegram_photo(photo_url, caption_html):
     resp.raise_for_status()
 
 
-def search_apple_music(song, artist, country):
+def search_apple_music(song, artist, country, debug_song=None):
     term = quote_plus(f"{artist} {song}")
     url = f"https://music.apple.com/{country}/search?term={term}"
     resp = requests.get(url, headers={"User-Agent": UA}, timeout=20)
@@ -137,6 +137,12 @@ def search_apple_music(song, artist, country):
             artist_name = item.get("subtitleLinks", [{}])[0].get("title", "")
             link = item.get("contentDescriptor", {}).get("url", "")
             artwork = extract_artwork_url(item)
+
+            # 调试：只在这条结果看起来像是我们要找的目标时，才打印完整原始字段，避免刷屏
+            if debug_song and normalize(debug_song) in normalize(title) and not artwork:
+                print(f"    [调试] 没抠到封面图，这条结果的完整原始字段如下：")
+                print(json.dumps(item, ensure_ascii=False)[:3000])
+
             results.append({"title": title, "artist": artist_name, "url": link, "artwork": artwork})
         except Exception:
             continue
@@ -212,7 +218,7 @@ def main():
 
         print(f"[检查] {artist} - {song}（{country}）...")
         try:
-            results = search_apple_music(song, artist, country)
+            results = search_apple_music(song, artist, country, debug_song=song)
         except Exception as e:
             print(f"  查询出错：{e}")
             continue
