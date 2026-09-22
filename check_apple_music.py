@@ -65,11 +65,11 @@ def send_telegram(text, html=False, disable_preview=True):
 
 
 def notify_found(title, artist, url, artwork_url=""):
-    """恢复成最初那种小巧的卡片样式：干净文字 + Telegram自己生成的小缩略图卡片，
-    不再发大图（大图太占屏幕，体验不如小卡片）"""
+    """单行"歌名 - 歌手"，链接藏起来只用来触发下面的小卡片，
+    不再显示"查看详情"这种多余文字（点卡片本身就能跳转）"""
     title_e = escape_html(title)
     artist_e = escape_html(artist)
-    text = f'<b>{title_e}</b>\n{artist_e}\n<a href="{url}">查看详情</a>'
+    text = f'{title_e} - {artist_e}<a href="{url}">&#8203;</a>'
     send_telegram(text, html=True, disable_preview=False)
 
 
